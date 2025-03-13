@@ -1,0 +1,112 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Исходные параметры
+n_air = 1.0  # показатель преломления воздуха
+n_coating = 3.17  # показатель преломления верхнего покрытия (примерное значение) -> InP
+n1 = 3.5  # показатель преломления AlGaInAs
+n2 = 3.17  # показатель преломления InP
+n_bottom = 3.5  # показатель преломления нижнего слоя AlGaInAs
+lambda0 = 1.55  # центральная длина волны (мкм)
+
+# Толщины слоев
+coating_thickness = lambda0 / (4 * n_coating)  # толщина покрытия (мкм)
+d1_nominal = lambda0 / (4 * n1)  # номинальная толщина слоя GaAs (мкм)
+d2_nominal = lambda0 / (4 * n2)  # номинальная толщина слоя AlAs (мкм)
+
+# Погрешность в толщине
+thickness_variation = 0.02  # средняя относительная погрешность (например, 2%)
+
+# Число пар слоев
+P = 10
+
+# Генерация толщин с учетом случайных вариаций
+d1 = d1_nominal * (1 + thickness_variation * np.random.randn(P))
+d2 = d2_nominal * (1 + thickness_variation * np.random.randn(P))
+
+# Спектральные параметры
+dlambda = 0.5  # отклонение длины волны (мкм)
+lambda_min = lambda0 - dlambda
+lambda_max = lambda0 + dlambda
+Nlambda = 1000
+lambda_j = np.linspace(lambda_min, lambda_max, Nlambda)
+
+
+def g(pm, n, nplus):
+    return (1 + pm * nplus / n) / 2
+
+
+def e(pm, k, d):
+    return np.exp(pm * 1j * k * d)
+
+
+def calculate_reflectance(d1_values, d2_values):
+    R2_result = np.zeros(Nlambda)
+    for jl in range(Nlambda):
+        lambda_ = lambda_j[jl]
+        k_coating = 2 * np.pi / lambda_ * n_coating
+        k1 = 2 * np.pi / lambda_ * n1
+        k2 = 2 * np.pi / lambda_ * n2
+
+        # Верхний слой (покрытие)
+        M_coating = np.array([
+            [g(+1, n_coating, n_air) * e(-1, k_coating, coating_thickness),
+             g(-1, n_coating, n_air) * e(-1, k_coating, coating_thickness)],
+            [g(-1, n_coating, n_air) * e(+1, k_coating, coating_thickness),
+             g(+1, n_coating, n_air) * e(+1, k_coating, coating_thickness)]
+        ])
+
+        V = np.array([
+            g(+1, n1, n_coating) * np.exp(1j * (- k1 * d1_values[0])),
+            g(-1, n1, n_coating) * np.exp(1j * (+ k1 * d1_values[0]))
+        ])
+
+        V = M_coating @ V
+
+        for p in range(P):
+            M21 = np.array([
+                [g(+1, n2, n1) * e(-1, k2, d2_values[p]), g(-1, n2, n1) * e(-1, k2, d2_values[p])],
+                [g(-1, n2, n1) * e(+1, k2, d2_values[p]), g(+1, n2, n1) * e(+1, k2, d2_values[p])]
+            ])
+            M12 = np.array([
+                [g(+1, n1, n2) * e(-1, k1, d1_values[p]), g(-1, n1, n2) * e(-1, k1, d1_values[p])],
+                [g(-1, n1, n2) * e(+1, k1, d1_values[p]), g(+1, n1, n2) * e(+1, k1, d1_values[p])]
+            ])
+            V = M21 @ V
+            V = M12 @ V
+
+        # Нижний слой
+        M_bottom = np.array([
+            [g(+1, n_bottom, n2), g(-1, n_bottom, n2)],
+            [g(-1, n_bottom, n2), g(+1, n_bottom, n2)]
+        ])
+        V = M21 @ V
+        V = M_bottom @ V
+
+        T = 1 / V[0]
+        R = V[1] * T
+        R2_result[jl] = abs(R) ** 2
+    return R2_result
+
+
+# Вычисления
+R2 = calculate_reflectance(d1, d2)
+R2_no_error = calculate_reflectance([d1_nominal] * P, [d2_nominal] * P)
+
+# Сохранение данных в файлы
+pd.DataFrame({"lambda_j": lambda_j, "R2": R2}).to_csv("reflection_with_error.csv", index=False)
+pd.DataFrame({"lambda_j": lambda_j, "R2_no_error": R2_no_error}).to_csv("reflection_without_error.csv", index=False)
+
+# График
+plt.figure(figsize=(10, 6))
+plt.plot(lambda_j, R2, label="С погрешностью", color="red", linestyle="dashed")
+plt.plot(lambda_j, R2_no_error, label="Без погрешности", color="blue")
+plt.xlabel("Длина волны, мкм", fontsize=20, fontname="Times New Roman")
+plt.ylabel("Коэффициент отражения", fontsize=20, fontname="Times New Roman")
+plt.title(f"AlGaInAs и InP, мкм; Число пар слоёв: {P}", fontsize=20, fontname="Times New Roman")
+plt.grid(True, linestyle="--", alpha=0.6)
+plt.legend(prop={'size': 16, 'family': 'Times New Roman'})
+plt.tight_layout()
+plt.savefig("reflection_spectral_comparison.png", dpi=300)
+plt.show()
