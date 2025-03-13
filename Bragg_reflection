@@ -1,0 +1,101 @@
+# Программа для расчёта коэффициента отражения Брэгговского зеркала
+#==============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as font_manager
+
+# Исходные параметры
+# Слои GaAs и AlAs, поглощение не учитываем
+# Пусть верхний слой под воздухом будет GaAs,
+# а нижний замыкающий тоже GaAs
+n_top = 1.0  # воздух
+n1 = 3.526  # показатель преломления GaAs
+n2 = 3.164  # показатель преломления AlGaAs
+n_bottom = 3.164  # AlGaAs
+lambda_ = 1.55  # мкм
+
+# Сделаем толщины слоёв по условию Брэгга
+d1 = lambda_ / (4 * n1)  # мкм
+d2 = lambda_ / (4 * n2)  # мкм
+
+# Волновые числа
+k_top = 2 * np.pi / lambda_ * n_top
+k1 = 2 * np.pi / lambda_ * n1
+k2 = 2 * np.pi / lambda_ * n2
+k_bottom = 2 * np.pi / lambda_ * n_bottom
+
+# Функции для расчётов
+def g(pm, n, nplus):
+    return (1 + pm * nplus / n) / 2
+
+def e(pm, k, d):
+    return np.exp(pm * 1j * k * d)
+
+# Матрицы перехода
+M21 = np.array([
+    [g(+1, n2, n1) * e(-1, k2, d2), g(-1, n2, n1) * e(-1, k2, d2)],
+    [g(-1, n2, n1) * e(+1, k2, d2), g(+1, n2, n1) * e(+1, k2, d2)]
+])
+
+M12 = np.array([
+    [g(+1, n1, n2) * e(-1, k1, d1), g(-1, n1, n2) * e(-1, k1, d1)],
+    [g(-1, n1, n2) * e(+1, k1, d1), g(+1, n1, n2) * e(+1, k1, d1)]
+])
+
+M_bottom = np.array([
+    [g(+1, n_bottom, n2), g(-1, n_bottom, n2)],
+    [g(-1, n_bottom, n2), g(+1, n_bottom, n2)]
+])
+
+# Основной расчётный цикл
+Np = 20  # Максимальное число пар
+R2 = np.zeros(Np)  # Квадраты коэффициентов отражения
+T2 = np.ones(Np)   # Квадраты коэффициентов прохождения
+
+for jp in range(1, Np + 1):
+    P = jp  # Число пар слоёв
+    W = P * (d1 + d2)  # Общая толщина структуры
+
+    # Условие над зеркалом
+    V = np.array([
+        g(+1, n1, n_top) * np.exp(1j * (k_top * W - k1 * d1)),
+        g(-1, n1, n_top) * np.exp(1j * (k_top * W + k1 * d1))
+    ])
+
+    # Расчёт коэффициентов
+    if P > 1:
+        for _ in range(P - 1):
+            V = M21 @ V
+            V = M12 @ V
+
+    V = M21 @ V
+    V = M_bottom @ V
+
+    T = 1 / V[0]  # Коэффициент прохождения
+    R = V[1] * T  # Коэффициент отражения
+
+    R2[jp - 1] = abs(R) ** 2
+    T2[jp - 1] = abs(T) ** 2
+
+# Построение графика
+x = np.arange(1, Np + 1)
+y1 = R2
+y2 = ((n_bottom * n1**(2 * x) - n_top * n2**(2 * x))**2 /
+      (n_bottom * n1**(2 * x) + n_top * n2**(2 * x))**2)
+
+plt.figure(figsize=(8, 6))
+plt.plot(x, y1, label='Вычисления', color='#0092cc', marker='o')
+plt.plot(x, y2, label='Точная формула', color='#ff3333', linestyle='--')
+plt.xlabel('Число пар слоёв P', fontsize=20, fontname="Times New Roman")
+plt.ylabel('Коэффициент отражения по мощности', fontsize=20, fontname="Times New Roman")
+plt.title(f'GaAs и AlGaAs, {d1:.3f} и {d2:.3f} мкм. Свет: {lambda_} мкм', fontsize=20, fontname="Times New Roman")
+
+#Работа с шрифтом легенды (не устанавливается параметром fontname):
+font = font_manager.FontProperties(family="Times New Roman", size=20)
+
+plt.legend(prop=font)
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.tight_layout()
+plt.savefig("reflection_transmission.png", dpi=300)
+plt.show()
